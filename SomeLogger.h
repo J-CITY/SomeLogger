@@ -12,6 +12,9 @@
 #endif
 #include<stdarg.h>
 
+#define PRINT_LINE __LINE__
+#define PRINT_LINE_STR std::to_string(__LINE__)
+
 namespace SomeLogger {
 
 enum class LoggerLevel {
@@ -151,11 +154,6 @@ public:
 		levelLabel[level] = label;
 	}
 
-	//Logger& operator<<(const String& msg) {
-	//	out(msg);
-	//	return *this;
-	//}
-
 	Logger& operator<<(const std::string& msg) {
 		out(String(msg));
 		return *this;
@@ -206,31 +204,39 @@ public:
 		return *this;
 	}
 
-	void logFormat(char* format, ...) {
+    Logger& printEndl(bool isEndl) {
+        this->isEndl = isEndl;
+        return *this;
+    }
 
-		this->fgColor = fgColor;
-		this->bgColor = bgColor;
-		this->level = level;
+	void logFormat(char* format, ...) {
+	    std::string allFormat = format;
 		#ifdef _WIN32
 		SetConsoleTextAttribute(hConsole, (static_cast<int>(fgColor) + (static_cast<int>(bgColor)<<1)));
 		#else
 		puts((std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] + std::string("m")).c_str());
 		#endif
-		char *traverse;
+		const char *traverse;
 		unsigned int i;
 		char *s;
+		allFormat = levelLabel[level] + allFormat;
 
 		va_list arg;
-		va_start(arg, format);
-
-		for (traverse = format; *traverse != '\0'; traverse++) {
-			while ( *traverse != '%' ) {
-				putchar(*traverse);
-				traverse++;
+		va_start(arg, allFormat.c_str());
+        bool needCheck = true;
+		for (auto& traverse : allFormat) {
+		    if (traverse == '\0') {
+                break;
+		    }
+			if (traverse != '%' && needCheck) {
+                putchar(traverse);
+                continue;
+			} else if (needCheck) {
+			    needCheck = false;
+                continue;
 			}
-			traverse++;
-
-			switch (*traverse) {
+            needCheck = true;
+			switch (traverse) {
 				case 'c' : i = va_arg(arg, int);	//Fetch char argument
 							putchar(i);
 							break;
@@ -259,6 +265,9 @@ public:
 							break;
 			}
 		}
+		if (isEndl) {
+            putchar('\n');
+		}
 		va_end(arg);
 		#ifdef _WIN32
 		SetConsoleTextAttribute(hConsole, 0x0f);
@@ -270,7 +279,7 @@ public:
 	~Logger() {
 	}
 private:
-
+    bool isEndl = false;
 	Color fgColor = Color::White;
 	Color bgColor = Color::Black;
 	LoggerLevel level = LoggerLevel::NONE;
@@ -286,7 +295,7 @@ private:
 		#endif
 	}
 
-	char *convert(unsigned int num, int base) {
+	char* convert(unsigned int num, int base) {
 		static char Representation[]= "0123456789ABCDEF";
 		static char buffer[50];
 		char *ptr;
@@ -302,12 +311,13 @@ private:
 	}
 
 	void out(const String& msg) {
-		#ifdef _WIN32
+	    #ifdef _WIN32
 		SetConsoleTextAttribute(hConsole, (static_cast<int>(fgColor) + (static_cast<int>(bgColor)<<1)));
-		std::cout << levelLabel[level] << msg.asStr();
+		std::cout <<levelLabel[level] << msg.asStr() << (isEndl ? "\n" : "");
 		SetConsoleTextAttribute(hConsole, 0x0f);
 		#else
-		std::cout << std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] + std::string("m") + levelLabel[level] + msg + std::string("\033[0m\n");
+		std::cout << std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] +
+            std::string("m") + levelLabel[level] + msg + std::string("\033[0m\n") + (isEndl ? "\n" : "");
 		#endif
 	}
 };

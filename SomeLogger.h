@@ -317,7 +317,7 @@ private:
 		SetConsoleTextAttribute(hConsole, 0x0f);
 		#else
 		std::cout << std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] +
-            std::string("m") + levelLabel[level] + msg + std::string("\033[0m\n") + (isEndl ? "\n" : "");
+            std::string("m") + levelLabel[level] + msg.asString() + std::string("\033[0m\n") + (isEndl ? "\n" : "");
 		#endif
 	}
 };

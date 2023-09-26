@@ -4,12 +4,15 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <map>
 
 #ifdef _WIN32
 #include <windows.h>
 #else
 
 #endif
+#include <mutex>
+#include <sstream>
 #include<stdarg.h>
 
 #define PRINT_LINE __LINE__
@@ -85,11 +88,11 @@ std::map<Color, std::string> colorToBgColor {
 #endif
 
 class String {
-	std::string data = "";
+	std::string data;
 public:
-	String() {}
+	String() = default;
 
-	String(std::string in) {
+	String(const std::string& in) {
 		data = in;
 	}
 	String(int in) {
@@ -134,23 +137,32 @@ public:
 	}
 };
 
+struct Endl {
+	Endl() = default;
+};
+struct Endlf {
+	Endlf() = default;
+};
+struct Flush {
+	Flush() = default;
+};
+
+template<class T>
+concept IsCont = 
+	requires(T t) { t.size(); } && 
+	requires(T t) { t.begin(); } &&
+	requires(T t) { t.end(); } &&
+	requires(T t) { std::is_same<decltype(t.size()), std::size_t>::value; };
+
 
 class Logger {
 public:
 	static Logger& Instance() {
-			static Logger logger;
-			return logger;
+		static Logger logger;
+		return logger;
 	}
 
-	std::map<LoggerLevel, std::string> levelLabel {
-		{ LoggerLevel::NONE, "" },
-		{ LoggerLevel::ERR, "ERROR " },
-		{ LoggerLevel::WARNING, "WARNING " },
-		{ LoggerLevel::DEBUG, "DEBUG " },
-		{ LoggerLevel::INFO, "INFO " }
-	};
-
-	void setLabelForLevel(LoggerLevel level, std::string label) {
+	void setLabelForLevel(const LoggerLevel level, const std::string& label) {
 		levelLabel[level] = label;
 	}
 
@@ -195,6 +207,55 @@ public:
 		return *this;
 	}
 
+	Logger& operator<<(Endl msg) {
+		endl();
+		return *this;
+	}
+
+	Logger& operator<<(Endlf msg) {
+		endlf();
+		return *this;
+	}
+
+	Logger& operator<<(Flush msg) {
+		flush();
+		return *this;
+	}
+
+	template<class T1, class T2>
+	Logger& operator<<(std::pair<T1, T2> const& val) {
+		*this << "{" << val.first << " " << val.second << "}";
+		return *this;
+	}
+
+	template<IsCont Cont>
+	Logger& operator<<(Cont cont) {
+		auto sz = cont.size();
+		for (const auto& e : cont) {
+			--sz;
+			*this << e << (sz ? seprStr : "");
+		}
+		return *this;
+	}
+
+	Logger& endl() {
+		out(endlStr);
+		errLevelPrint = false;
+		return *this;
+	}
+
+	Logger& flush() {
+		std::cout.flush();
+		errLevelPrint = false;
+		return *this;
+	}
+
+	Logger& endlf() {
+		endl();
+		flush();
+		return *this;
+	}
+
 	Logger& log(LoggerLevel level=LoggerLevel::NONE,
 				Color fgColor=Color::White,
 				Color bgColor=Color::Black) {
@@ -204,69 +265,78 @@ public:
 		return *this;
 	}
 
-    Logger& printEndl(bool isEndl) {
-        this->isEndl = isEndl;
-        return *this;
-    }
+	Logger& setEndl(const std::string& endl) {
+		endlStr = endl;
+		return *this;
+	}
 
-	void logFormat(char* format, ...) {
-	    std::string allFormat = format;
+	Logger& setSepr(const std::string& sepr) {
+		seprStr = sepr;
+		return *this;
+	}
+
+	Logger& logFormat(const std::string format, ...) {
+		std::lock_guard lg(mutex);
+
+		std::string allFormat = format;
 		#ifdef _WIN32
 		SetConsoleTextAttribute(hConsole, (static_cast<int>(fgColor) + (static_cast<int>(bgColor)<<1)));
 		#else
 		puts((std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] + std::string("m")).c_str());
 		#endif
-		const char *traverse;
-		unsigned int i;
-		char *s;
-		allFormat = levelLabel[level] + allFormat;
+		allFormat += endlStr;
 
 		va_list arg;
-		va_start(arg, allFormat.c_str());
-        bool needCheck = true;
+		va_start(arg, format);
+		bool needCheck = true;
 		for (auto& traverse : allFormat) {
-		    if (traverse == '\0') {
-                break;
-		    }
+			if (traverse == '\0') {
+				break;
+			}
 			if (traverse != '%' && needCheck) {
-                putchar(traverse);
-                continue;
+				out(traverse);
+				continue;
 			} else if (needCheck) {
-			    needCheck = false;
-                continue;
+				needCheck = false;
+				continue;
 			}
-            needCheck = true;
+			needCheck = true;
 			switch (traverse) {
-				case 'c' : i = va_arg(arg, int);	//Fetch char argument
-							putchar(i);
-							break;
-
-				case 'd' : i = va_arg(arg, int); //Fetch Decimal/Integer argument
-							if (i < 0) {
-								i = -i;
-								putchar('-');
-							}
-							puts(convert(i,10));
-							break;
-
-				case 'o': i = va_arg(arg, unsigned int); //Fetch Octal representation
-							puts(convert(i, 8));
-							break;
-
-				case 's': s = va_arg(arg, char *); //Fetch string
-							puts(s);
-							break;
-
-				case 'x': i = va_arg(arg, unsigned int); //Fetch Hexadecimal representation
-							puts(convert(i, 16));
-							break;
-				case 'b': i = va_arg(arg,unsigned int); //Fetch binary representation
-							puts(convert(i, 2));
-							break;
+				case 'c': {
+					int i = va_arg(arg, int);	//Fetch char argument
+					out(i);
+				}
+				break;
+				case 'd': {
+					int i = va_arg(arg, int); //Fetch Decimal/Integer argument
+					if (i < 0) {
+						i = -i;
+						out('-');
+					}
+					out(convert(i, 10));
+				}
+				break;
+				case 'o': {
+					unsigned i = va_arg(arg, unsigned int); //Fetch Octal representation
+					out(convert(i, 8));
+				}
+				break;
+				case 's': {
+					auto s = va_arg(arg, char*); //Fetch string
+					out(s);
+				}
+				break;
+				case 'x': {
+					unsigned i = va_arg(arg, unsigned int); //Fetch Hexadecimal representation
+					out(convert(i, 16));
+				}
+				break;
+				case 'b': {
+					unsigned i = va_arg(arg, unsigned int); //Fetch binary representation
+					out(convert(i, 2));
+				}
+				break;
 			}
-		}
-		if (isEndl) {
-            putchar('\n');
 		}
 		va_end(arg);
 		#ifdef _WIN32
@@ -274,51 +344,67 @@ public:
 		#else
 		puts("\033[0m\n");
 		#endif
+
+		flush();
+
+		return *this;
 	}
 
-	~Logger() {
+	~Logger() = default;
+
+	//You could create local logger
+	Logger() {
+#ifdef _WIN32
+		hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+#else
+
+#endif
 	}
 private:
-    bool isEndl = false;
+	inline static std::mutex mutex;
+
+	bool errLevelPrint = false;
+
+	std::map<LoggerLevel, std::string> levelLabel{
+		{ LoggerLevel::NONE, "" },
+		{ LoggerLevel::ERR, "ERROR " },
+		{ LoggerLevel::WARNING, "WARNING " },
+		{ LoggerLevel::DEBUG, "DEBUG " },
+		{ LoggerLevel::INFO, "INFO " }
+	};
+
+	std::string endlStr = "\n";
+	std::string seprStr = ", ";
 	Color fgColor = Color::White;
 	Color bgColor = Color::Black;
 	LoggerLevel level = LoggerLevel::NONE;
+
 	#ifdef _WIN32
 	HANDLE  hConsole;
 	#endif
 
-	Logger() {
-		#ifdef _WIN32
-		hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-		#else
-
-		#endif
-	}
-
-	char* convert(unsigned int num, int base) {
+	std::string convert(unsigned int num, int base) {
 		static char Representation[]= "0123456789ABCDEF";
-		static char buffer[50];
-		char *ptr;
-
-		ptr = &buffer[49];
-		*ptr = '\0';
-
+		std::string res;
 		do {
-			*--ptr = Representation[num % base];
+			res = Representation[num % base] + res;
 			num /= base;
 		} while(num != 0);
-		return(ptr);
+		return res;
 	}
 
 	void out(const String& msg) {
-	    #ifdef _WIN32
+		#ifdef _WIN32
 		SetConsoleTextAttribute(hConsole, (static_cast<int>(fgColor) + (static_cast<int>(bgColor)<<1)));
-		std::cout <<levelLabel[level] << msg.asStr() << (isEndl ? "\n" : "");
+		std::cout << (errLevelPrint ? "" : levelLabel[level]) << msg.asStr();
 		SetConsoleTextAttribute(hConsole, 0x0f);
 		#else
 		std::cout << std::string("\033[") + colorToFgColor[fgColor] + std::string(";") + colorToBgColor[bgColor] +
-            std::string("m") + levelLabel[level] + msg.asString() + std::string("\033[0m\n") + (isEndl ? "\n" : "");
+			std::string("m") + (errLevelPrint ? "" : levelLabel[level]) + msg.asString() + std::string("\033[0m\n");
 		#endif
+
+
+		errLevelPrint = true;
 	}
 };
 
@@ -340,7 +426,7 @@ public:
 		this->bgColor = bgColor;
 	}
 
-	int size() {
+	size_t size() {
 		return data.size();
 	}
 
@@ -439,7 +525,7 @@ public:
 		this->bgColor = bgColor;
 	}
 
-	int size() {
+	size_t size() {
 		return data.size();
 	}
 
@@ -516,16 +602,16 @@ public:
 			getColSizes();
 		}
 
-		auto borderLen = 1;
+		auto borderLen = 1u;
 		if (colSizes.size() > 0) {
 			for (auto& e : colSizes) {
 				borderLen += e + 1;
 			}
 		} else {
-			borderLen += (elemW + 1) * colSize;
+			borderLen += (elemW + 1) * static_cast<unsigned>(colSize);
 		}
 		Logger l = Logger::Instance();
-		for (auto i = 0; i < borderLen; ++i) {
+		for (auto i = 0u; i < borderLen; ++i) {
 			if (i == 0) {
 				l.log(LoggerLevel::NONE, fgBorder, bgBorder) << border[0];
 				continue;
@@ -552,7 +638,7 @@ public:
 			if (i == _table.size()-1) {
 				continue;
 			}
-			for (auto k = 0; k < borderLen; ++k) {
+			for (auto k = 0u; k < borderLen; ++k) {
 				if (k == 0) {
 					l.log(LoggerLevel::NONE, fgBorder, bgBorder) << border[3];
 					continue;
@@ -566,8 +652,8 @@ public:
 			l.log(LoggerLevel::NONE, fgBorder, bgBorder) << "\n";
 		}
 
-		for (auto i = 0; i < borderLen; ++i) {
-			if (i == 0) {
+		for (auto i = 0u; i < borderLen; ++i) {
+			if (i == 0u) {
 				l.log(LoggerLevel::NONE, fgBorder, bgBorder) << border[4];
 				continue;
 			}
@@ -582,7 +668,7 @@ public:
 
 private:
 	std::vector<std::string> border = {"/", "-", "\\", "|", "\\", "_", "/"};
-	std::vector<int> colSizes;
+	std::vector<unsigned> colSizes;
 
 	int elemW = -1;
 	std::vector<std::vector<TableElem>> _table;
@@ -614,11 +700,11 @@ private:
 		}
 		auto w = _table[0].size();
 		for (auto i = 0; i < w; i++) {
-			auto _max = 1;
+			auto _max = 1u;
 			for (auto j = 0; j < _table.size(); ++j) {
 				auto elemLen = _table[j][i].data.size();
 				if (elemLen > _max) {
-					_max = elemLen;
+					_max = static_cast<unsigned>(elemLen);
 				}
 			}
 			colSizes.push_back(_max);

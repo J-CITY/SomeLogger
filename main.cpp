@@ -1,6 +1,6 @@
-#include <iostream>
+﻿#include <iostream>
 
-#include "SomeLogger.h"
+#include "someLogger.h"
 
 using namespace std;
 using namespace SomeLogger;
@@ -8,12 +8,23 @@ using namespace SomeLogger;
 int main() {
 	Logger logger = Logger::Instance();
 
-	logger.printEndl(true).log(LoggerLevel::ERR, Color::Red, Color::Blue) << PRINT_LINE_STR << "TEST";
+	logger.log(LoggerLevel::ERR, Color::Red, Color::Blue) << PRINT_LINE_STR << " TEST" << Endl();
 
 
-	logger.log(LoggerLevel::ERR, Color::Red, Color::Blue).logFormat(" WWW.FIRMCODES.COM  %d wwa %d", 1321, PRINT_LINE);
+	logger.log(LoggerLevel::ERR, Color::Red, Color::Blue).logFormat(" QWERTYU  %d wwa %d", 1321, PRINT_LINE).endl();
+
+
+	std::map<std::string, int> m = {
+		{"one", 1},
+		{"two", 2},
+		{"three", 3},
+	};
+	std::vector<int> v = { 0,1,2 };
+
+	logger << m << Endl();
+	logger << v << Endl();
+
 	//cout << "\033[1;31mbold red text\033[0m\n";
-    logger.printEndl(false);
 	List l;
 
 	l << "TEST";

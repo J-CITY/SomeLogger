@@ -44,6 +44,8 @@ int main() {
 	t[2][4] = TableElem("QWQFS");
 	t.print();
 
+	logger << t << Endl();
+
 	cout << t.get(2, 4);
 	return 0;
 }

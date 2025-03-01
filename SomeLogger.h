@@ -1,6 +1,5 @@
-#ifndef SOMELOGGER_H_INCLUDED
-#define SOMELOGGER_H_INCLUDED
-//#pragma one
+#pragma once
+
 #include <map>
 #include <string>
 #include <vector>
@@ -155,6 +154,19 @@ concept IsCont =
 	requires(T t) { std::is_same<decltype(t.size()), std::size_t>::value; };
 
 
+#define HAS_MEM_FUNC(func, name)                                        \
+    template<typename T, typename Sign>                                 \
+    struct name {                                                       \
+        typedef char yes[1];                                            \
+        typedef char no [2];                                            \
+        template <typename U, U> struct type_check;                     \
+        template <typename _1> static yes &chk(type_check<Sign, &_1::func > *); \
+        template <typename   > static no  &chk(...);                    \
+        static bool const value = sizeof(chk<T>(0)) == sizeof(yes);     \
+    }
+
+HAS_MEM_FUNC(toString, has_to_string);
+
 class Logger {
 public:
 	static Logger& Instance() {
@@ -168,6 +180,10 @@ public:
 
 	Logger& operator<<(const std::string& msg) {
 		out(String(msg));
+		return *this;
+	}
+	Logger& operator<<(const char* msg) {
+		out(String(std::string(msg)));
 		return *this;
 	}
 	Logger& operator<<(const int& msg) {
@@ -219,6 +235,18 @@ public:
 
 	Logger& operator<<(Flush msg) {
 		flush();
+		return *this;
+	}
+
+	template<class T>
+	Logger& operator<<(const T& arg) {
+		constexpr bool has_toString = requires(const T& t) {
+			t.toString();
+		};
+	
+		if constexpr (has_toString) {
+			out(String(arg.toString()));
+		}
 		return *this;
 	}
 
@@ -458,7 +486,7 @@ public:
 		_list.erase(_list.begin() + id);
 	}
 
-	void insert(unsigned int id, std::string value) {
+	void insert(unsigned int id, const std::string& value) {
 		if (id >= _list.size()) {
 			Logger l = Logger::Instance();
 			l.log(LoggerLevel::ERR, Color::Red) << "BAD ID";
@@ -480,8 +508,8 @@ public:
 		_list.clear();
 	}
 
-	void print() {
-		Logger l = Logger::Instance();
+	void print() const {
+		Logger& l = Logger::Instance();
 
 		auto cnt = 1;
 		for (auto& e : _list) {
@@ -490,7 +518,17 @@ public:
 		}
 	}
 
-	void setSeparator(std::string sep) {
+	std::string toString() const {
+		std::string res = "\n";
+		auto cnt = 1;
+		for (auto& e : _list) {
+			res += format(cnt) + separator + e.data + "\n";
+			cnt++;
+		}
+		return res;
+	}
+
+	void setSeparator(const std::string& sep) {
 		separator = sep;
 	}
 
@@ -498,7 +536,7 @@ private:
 	std::vector<ListElem> _list;
 	std::string separator = ". ";
 
-	std::string format(int e) {
+	std::string format(int e) const {
 		auto elemLen = std::to_string(_list.size() + 1).size();
 		auto es = std::to_string(e);
 		while (es.size() < elemLen) {
@@ -515,7 +553,7 @@ public:
 	Color bgColor = Color::Black;
 	std::string data = "";
 
-	TableElem(std::string data="",
+	TableElem(const std::string& data="",
 			LoggerLevel level=LoggerLevel::NONE,
 			Color fgColor=Color::White,
 			Color bgColor=Color::Black) {
@@ -555,7 +593,7 @@ public:
 		elemW = w;
 	}
 
-	void insert(unsigned int col, unsigned int row, std::string value,
+	void insert(unsigned int col, unsigned int row, const std::string& value,
 				LoggerLevel level=LoggerLevel::NONE,
 				Color fgColor=Color::White,
 				Color bgColor=Color::Black) {
@@ -564,7 +602,7 @@ public:
 		}
 	}
 
-	void remove(unsigned int col, unsigned int row, std::string value) {
+	void remove(unsigned int col, unsigned int row) {
 		if (row >= _table.size() || col >= _table[row].size()) {
 			Logger l = Logger::Instance();
 			l.log(LoggerLevel::ERR, Color::Red) << "BAD IDS";
@@ -596,7 +634,7 @@ public:
 		if (_table.size() == 0) {
 			return;
 		}
-		auto colSize = _table[0].size();
+		const auto colSize = _table[0].size();
 
 		if (elemW < 0) {
 			getColSizes();
@@ -666,14 +704,90 @@ public:
 		l.log(LoggerLevel::NONE, fgBorder, bgBorder) << "\n";
 	}
 
+	std::string toString() const {
+		if (_table.size() == 0) {
+			return "";
+		}
+		const auto colSize = _table[0].size();
+
+		if (elemW < 0) {
+			getColSizes();
+		}
+
+		auto borderLen = 1u;
+		if (colSizes.size() > 0) {
+			for (auto& e : colSizes) {
+				borderLen += e + 1;
+			}
+		} else {
+			borderLen += (elemW + 1) * static_cast<unsigned>(colSize);
+		}
+		std::string res = "\n";
+		for (auto i = 0u; i < borderLen; ++i) {
+			if (i == 0) {
+				res += border[0];
+				continue;
+			}
+			if (i == borderLen - 1) {
+				res += border[2];
+				continue;
+			}
+			res += border[1];
+		}
+		res += "\n";
+		for (auto i = 0; i < _table.size(); i++) {
+			res += border[3];
+			for (auto j = 0; j < _table[i].size(); ++j) {
+				TableElem elem = _table[i][j];
+				auto elemLen = elemW;
+				if (colSizes.size() > 0) {
+					elemLen = colSizes[j];
+				}
+				res += format(elem.data, elemLen);
+				res += border[3];
+			}
+			res += "\n";
+			if (i == _table.size() - 1) {
+				continue;
+			}
+			for (auto k = 0u; k < borderLen; ++k) {
+				if (k == 0) {
+					res += border[3];
+					continue;
+				}
+				if (k == borderLen - 1) {
+					res += border[3];
+					continue;
+				}
+				res += border[1];
+			}
+			res += "\n";
+		}
+
+		for (auto i = 0u; i < borderLen; ++i) {
+			if (i == 0u) {
+				res += border[4];
+				continue;
+			}
+			if (i == borderLen - 1) {
+				res += border[6];
+				continue;
+			}
+			res += border[5];
+		}
+		res += "\n";
+
+		return res;
+	}
+
 private:
 	std::vector<std::string> border = {"/", "-", "\\", "|", "\\", "_", "/"};
-	std::vector<unsigned> colSizes;
+	mutable std::vector<unsigned> colSizes;
 
 	int elemW = -1;
 	std::vector<std::vector<TableElem>> _table;
 
-	std::string format(std::string elem, int size) {
+	std::string format(std::string elem, int size) const {
 		if (elem.size() >= size) {
 			return elem.substr(0, size);
 		}
@@ -692,7 +806,7 @@ private:
 		return res;
 	}
 
-	void getColSizes() {
+	void getColSizes() const {
 		colSizes.clear();
 
 		if (!_table.size()) {
@@ -709,12 +823,8 @@ private:
 			}
 			colSizes.push_back(_max);
 		}
-		return;
 	}
 };
 
-
-//TODO Custom string
 };
 
-#endif // SOMELOGGER_H_INCLUDED
